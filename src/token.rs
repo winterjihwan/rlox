@@ -7,10 +7,10 @@ pub enum Literal {
 }
 
 pub struct Token {
-    pub token_type: TokenType,
-    pub lexeme: String,
-    pub literal: Option<Literal>,
-    pub line: usize,
+    token_type: TokenType,
+    lexeme: String,
+    literal: Option<Literal>,
+    line: usize,
 }
 
 impl Token {

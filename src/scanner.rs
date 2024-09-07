@@ -1,6 +1,7 @@
 use std::process::exit;
 
 use crate::{
+    reserved::RESERVED_KEYWORDS,
     token::{Literal, Token},
     token_type::TokenType,
 };
@@ -92,6 +93,7 @@ impl Scanner {
 
                 self.add_token(TokenType::Slash, None)
             }
+
             ' ' => {}
             '\r' => {}
             '\t' => {}
@@ -102,15 +104,28 @@ impl Scanner {
                 self.string();
                 self.line += 1;
             }
+
+            'o' => {
+                if self.match_char('r') {
+                    self.add_token(TokenType::Or, None)
+                }
+            }
+
             _ => {
-                println!("Unexpected token: {c}");
-                exit(11)
+                if c.is_numeric() {
+                    self.number();
+                } else if c.is_alphabetic() {
+                    self.identifier()
+                } else {
+                    println!("Unexpected token: {c}");
+                    exit(11)
+                }
             }
         }
     }
 
     fn is_end(&self) -> bool {
-        if self.source.len() < self.current as usize {
+        if self.source.len() < self.current {
             return true;
         }
         false
@@ -126,12 +141,8 @@ impl Scanner {
     fn add_token(&mut self, token_type: TokenType, literal: Option<Literal>) {
         let lexeme = String::from(&self.source[self.start..self.current]);
 
-        self.tokens.push(Token {
-            token_type,
-            lexeme,
-            literal,
-            line: self.line,
-        })
+        self.tokens
+            .push(Token::new(token_type, lexeme, literal, self.line));
     }
 
     fn match_char(&mut self, expected_char: char) -> bool {
@@ -155,6 +166,14 @@ impl Scanner {
         self.source.chars().nth(self.current).unwrap()
     }
 
+    fn peek_next(&self) -> char {
+        if self.source.len() < self.current + 1 {
+            return '\0';
+        }
+
+        self.source.chars().nth(self.current + 1).unwrap()
+    }
+
     fn string(&mut self) {
         while self.peek() != '"' && !self.is_end() {
             if self.peek() == '\n' {
@@ -172,5 +191,43 @@ impl Scanner {
 
         let literal = String::from(&self.source[self.start + 1..self.current - 1]);
         self.add_token(TokenType::String, Some(Literal::string(literal)));
+    }
+
+    fn number(&mut self) {
+        while self.peek().is_numeric() {
+            self.advance();
+        }
+
+        if self.peek() == '.' && self.peek_next().is_numeric() {
+            self.advance();
+
+            while self.peek().is_numeric() {
+                self.advance();
+            }
+
+            //TODO: return here as fsize
+        };
+
+        let literal = (&self.source[self.start + 1..self.current - 1])
+            .parse::<usize>()
+            .unwrap();
+
+        self.add_token(TokenType::String, Some(Literal::usize(literal)));
+    }
+
+    fn identifier(&mut self) {
+        while self.peek().is_alphanumeric() {
+            self.advance();
+        }
+
+        let text = &self.source[self.start..self.current];
+        let token_type = {
+            match RESERVED_KEYWORDS.get(text) {
+                Some(t) => *t,
+                None => TokenType::Identifier,
+            }
+        };
+
+        self.add_token(token_type, None);
     }
 }
