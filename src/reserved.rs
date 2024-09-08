@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use lazy_static::lazy_static;
 
-use crate::token_type::TokenType;
+use crate::token::TokenType;
 
 lazy_static! {
     pub static ref RESERVED_KEYWORDS: HashMap<&'static str, TokenType> = {

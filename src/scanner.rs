@@ -2,13 +2,12 @@ use std::process::exit;
 
 use crate::{
     reserved::RESERVED_KEYWORDS,
-    token::{Literal, Token},
-    token_type::TokenType,
+    token::{Literal, Token, TokenType},
 };
 
-struct Scanner {
-    source: String,
-    tokens: Vec<Token>,
+pub struct Scanner {
+    pub source: String,
+    pub tokens: Vec<Token>,
 
     start: usize,
     line: usize,
@@ -125,13 +124,14 @@ impl Scanner {
     }
 
     fn is_end(&self) -> bool {
-        if self.source.len() < self.current {
+        if self.source.len() <= self.current {
             return true;
         }
         false
     }
 
     fn advance(&mut self) -> char {
+        println!("current: {}", self.current);
         let char = self.source.chars().nth(self.current).unwrap();
         self.current += 1;
 
@@ -167,7 +167,7 @@ impl Scanner {
     }
 
     fn peek_next(&self) -> char {
-        if self.source.len() < self.current + 1 {
+        if self.source.len() <= self.current + 1 {
             return '\0';
         }
 
@@ -212,7 +212,7 @@ impl Scanner {
             .parse::<usize>()
             .unwrap();
 
-        self.add_token(TokenType::String, Some(Literal::usize(literal)));
+        self.add_token(TokenType::Number, Some(Literal::usize(literal)));
     }
 
     fn identifier(&mut self) {
