@@ -1,4 +1,5 @@
 use crate::{
+    errors::ParseError,
     expr::{Expr, ExprBinary, ExprGrouping, ExprLiteral, ExprUnary},
     token::{Literal, Token, TokenType},
 };
@@ -13,116 +14,121 @@ impl Parser {
         Self { tokens, current: 0 }
     }
 
-    fn expression(&mut self) -> Expr {
+    pub fn parse(&mut self) -> Option<Expr> {
+        self.expression()
+            .map_err(|err| {
+                println!("PARSE ERROR: {}", err);
+            })
+            .ok()
+    }
+
+    fn expression(&mut self) -> Result<Expr, ParseError> {
         self.equality()
     }
 
-    fn equality(&mut self) -> Expr {
-        let mut expr = self.comparison();
-
-        while self.match_token_type(vec![TokenType::Bang, TokenType::BangEqual]) {
-            let operator = self.previous();
-            let right = self.comparison();
-            expr = Expr::Binary(ExprBinary::new(expr, operator, right))
-        }
-
-        expr
+    fn equality(&mut self) -> Result<Expr, ParseError> {
+        self.binary_expr(
+            Self::comparison,
+            vec![TokenType::Bang, TokenType::BangEqual],
+        )
     }
 
-    fn comparison(&mut self) -> Expr {
-        let mut expr = self.term();
-
-        while self.match_token_type(vec![
-            TokenType::Greater,
-            TokenType::GreaterEqual,
-            TokenType::Less,
-            TokenType::LessEqual,
-        ]) {
-            let operator = self.previous();
-            let right = self.term();
-            expr = Expr::Binary(ExprBinary::new(expr, operator, right))
-        }
-
-        expr
+    fn comparison(&mut self) -> Result<Expr, ParseError> {
+        self.binary_expr(
+            Self::term,
+            vec![
+                TokenType::Greater,
+                TokenType::GreaterEqual,
+                TokenType::Less,
+                TokenType::LessEqual,
+            ],
+        )
     }
 
-    fn term(&mut self) -> Expr {
-        let mut expr = self.factor();
-
-        while self.match_token_type(vec![TokenType::Plus, TokenType::Minus]) {
-            let operator = self.previous();
-            let right = self.factor();
-            expr = Expr::Binary(ExprBinary::new(expr, operator, right))
-        }
-
-        expr
+    fn term(&mut self) -> Result<Expr, ParseError> {
+        self.binary_expr(Self::factor, vec![TokenType::Plus, TokenType::Minus])
     }
 
-    fn factor(&mut self) -> Expr {
-        let mut expr = self.unary();
-
-        while self.match_token_type(vec![TokenType::Slash, TokenType::Star]) {
-            let operator = self.previous();
-            let right = self.unary();
-            expr = Expr::Binary(ExprBinary::new(expr, operator, right))
-        }
-
-        expr
+    fn factor(&mut self) -> Result<Expr, ParseError> {
+        self.binary_expr(Self::unary, vec![TokenType::Slash, TokenType::Star])
     }
 
-    fn unary(&mut self) -> Expr {
-        if self.match_token_type(vec![TokenType::Bang, TokenType::Minus]) {
-            let operator = self.previous();
-            let right = self.unary();
-            return Expr::Unary(ExprUnary::new(operator, right));
-        } else {
-            return self.primary();
-        }
+    fn unary(&mut self) -> Result<Expr, ParseError> {
+        self.unary_expr(Self::primary, vec![TokenType::Bang, TokenType::Minus])
     }
 
-    fn primary(&mut self) -> Expr {
-        if self.match_token_type(vec![TokenType::True]) {
-            return Expr::Literal(ExprLiteral::new(Literal::bool(true)));
-        }
-        if self.match_token_type(vec![TokenType::False]) {
-            return Expr::Literal(ExprLiteral::new(Literal::bool(false)));
-        }
-        if self.match_token_type(vec![TokenType::Nil]) {
-            return Expr::Literal(ExprLiteral::new(Literal::null(())));
-        }
-        if self.match_token_type(vec![TokenType::Number]) {
-            return Expr::Literal(ExprLiteral::new(self.previous().literal.unwrap()));
-        }
-        if self.match_token_type(vec![TokenType::String]) {
-            return Expr::Literal(ExprLiteral::new(self.previous().literal.unwrap()));
+    fn primary(&mut self) -> Result<Expr, ParseError> {
+        if self.is_at_end() {
+            return Err(ParseError::ParseEOF { token: self.peek() });
         }
 
-        if self.match_token_type(vec![TokenType::LeftParen]) {
-            let expr = self.expression();
-            let _ = self.consume(TokenType::RightParen, "Expect ')' after expression.");
-            return Expr::Grouping(ExprGrouping::new(expr));
-        } else {
-            panic!();
-        }
-    }
-
-    fn consume(&mut self, token_type: TokenType, message: &str) -> Token {
-        let check = |token_type: TokenType| {
-            if self.is_at_end() {
-                return false;
+        let expr = match self.peek().token_type {
+            TokenType::True => Expr::Literal(ExprLiteral::new(Literal::bool(true))),
+            TokenType::False => Expr::Literal(ExprLiteral::new(Literal::bool(false))),
+            TokenType::Nil => Expr::Literal(ExprLiteral::new(Literal::null(()))),
+            TokenType::Number => Expr::Literal(ExprLiteral::new(self.previous().literal.unwrap())),
+            TokenType::String => Expr::Literal(ExprLiteral::new(self.previous().literal.unwrap())),
+            TokenType::LeftParen => {
+                let expr = self.expression()?;
+                let _ = self.consume(
+                    TokenType::RightParen,
+                    "Expect ')' after expression.".to_string(),
+                );
+                Expr::Grouping(ExprGrouping::new(expr))
             }
-
-            self.peek().token_type == token_type
+            _ => {
+                return Err(ParseError::ParseFail {
+                    token: self.peek(),
+                    message: "Expect expression.".to_string(),
+                });
+            }
         };
 
-        if check(token_type) {
-            self.advance()
-        } else {
-            panic!();
+        Ok(expr)
+    }
+
+    fn synchronize(&mut self) {
+        let previous = self.advance();
+
+        while !self.is_at_end() {
+            if previous.token_type == TokenType::Semicolon {
+                break;
+            }
+
+            match self.peek().token_type {
+                TokenType::Class => {}
+                TokenType::Fun => {}
+                TokenType::Var => {}
+                TokenType::For => {}
+                TokenType::If => {}
+                TokenType::While => {}
+                TokenType::Print => {}
+                TokenType::Return => {
+                    break;
+                }
+                _ => unimplemented!(),
+            }
+
+            self.advance();
         }
     }
 
-    fn match_token_type(&mut self, token_types: Vec<TokenType>) -> bool {
+    fn consume(&mut self, token_type: TokenType, message: String) -> Result<Token, ParseError> {
+        if self.is_at_end() {
+            return Err(ParseError::ParseEOF { token: self.peek() });
+        }
+
+        if self.peek().token_type == token_type {
+            return Ok(self.advance());
+        }
+
+        Err(ParseError::ParseFail {
+            token: self.peek(),
+            message,
+        })
+    }
+
+    fn match_token_type(&mut self, token_types: &Vec<TokenType>) -> bool {
         if self.is_at_end() {
             return false;
         }
@@ -154,5 +160,35 @@ impl Parser {
 
     fn previous(&self) -> Token {
         self.tokens.get(self.current - 1).unwrap().clone()
+    }
+
+    pub fn binary_expr(
+        &mut self,
+        parse_fn: fn(&mut Self) -> Result<Expr, ParseError>,
+        match_types: Vec<TokenType>,
+    ) -> Result<Expr, ParseError> {
+        let mut expr = parse_fn(self)?;
+
+        while self.match_token_type(&match_types) {
+            let operator = self.previous();
+            let right = parse_fn(self)?;
+            expr = Expr::Binary(ExprBinary::new(expr, operator, right))
+        }
+
+        Ok(expr)
+    }
+
+    pub fn unary_expr(
+        &mut self,
+        parse_fn: fn(&mut Self) -> Result<Expr, ParseError>,
+        match_types: Vec<TokenType>,
+    ) -> Result<Expr, ParseError> {
+        if self.match_token_type(&match_types) {
+            let operator = self.previous();
+            let right = self.unary_expr(parse_fn, match_types)?;
+            return Ok(Expr::Unary(ExprUnary::new(operator, right)));
+        }
+
+        parse_fn(self)
     }
 }

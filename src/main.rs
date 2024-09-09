@@ -1,4 +1,5 @@
 mod ast;
+mod errors;
 mod expr;
 mod parser;
 mod reserved;
@@ -14,6 +15,7 @@ use std::{
 
 use ast::ast_print;
 use expr::{Expr, ExprBinary, ExprGrouping, ExprLiteral, ExprUnary};
+use parser::Parser;
 use scanner::Scanner;
 use token::{Literal, Token, TokenType};
 
@@ -53,6 +55,13 @@ fn rlox_run() -> io::Result<()> {
 
     let mut scanner = Scanner::new(source);
     scanner.scan_tokens();
+
+    let mut parser = Parser::new(scanner.tokens);
+    let expr = parser.parse();
+
+    if let Some(expr) = expr {
+        println!("AST: {}", ast_print(expr));
+    };
 
     Ok(())
 }
