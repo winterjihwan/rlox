@@ -1,11 +1,13 @@
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(non_camel_case_types)]
 pub enum Literal {
     string(String),
     usize(usize),
     f64(f64),
+    bool(bool),
+    null(()),
 }
 
 impl Display for Literal {
@@ -14,11 +16,13 @@ impl Display for Literal {
             Literal::string(string) => write!(f, "{}", string),
             Literal::usize(usize) => write!(f, "{}", usize),
             Literal::f64(f64) => write!(f, "{}", f64),
+            Literal::bool(bool) => write!(f, "{}", bool),
+            Literal::null(_) => write!(f, "null"),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
@@ -42,7 +46,7 @@ impl Token {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenType {
     LeftParen,
     RightParen,
