@@ -14,12 +14,11 @@ impl Parser {
         Self { tokens, current: 0 }
     }
 
-    pub fn parse(&mut self) -> Option<Expr> {
-        self.expression()
-            .map_err(|err| {
-                println!("PARSE ERROR: {}", err);
-            })
-            .ok()
+    pub fn parse(&mut self) -> Result<Expr, ParseError> {
+        self.expression().map_err(|err| {
+            println!("PARSE ERROR: {}", err);
+            err
+        })
     }
 
     fn expression(&mut self) -> Result<Expr, ParseError> {
@@ -65,7 +64,7 @@ impl Parser {
         let expr = match self.peek().token_type {
             TokenType::True => Expr::Literal(ExprLiteral::new(Literal::bool(true))),
             TokenType::False => Expr::Literal(ExprLiteral::new(Literal::bool(false))),
-            TokenType::Nil => Expr::Literal(ExprLiteral::new(Literal::null(()))),
+            TokenType::Nil => Expr::Literal(ExprLiteral::new(Literal::nil(()))),
             TokenType::Number => Expr::Literal(ExprLiteral::new(self.previous().literal.unwrap())),
             TokenType::String => Expr::Literal(ExprLiteral::new(self.previous().literal.unwrap())),
             TokenType::LeftParen => {

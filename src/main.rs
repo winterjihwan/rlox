@@ -1,6 +1,7 @@
 mod ast;
 mod errors;
 mod expr;
+mod interpreter;
 mod parser;
 mod reserved;
 mod scanner;
@@ -13,32 +14,11 @@ use std::{
     process::exit,
 };
 
-use ast::ast_print;
-use expr::{Expr, ExprBinary, ExprGrouping, ExprLiteral, ExprUnary};
+use interpreter::Interpreter;
 use parser::Parser;
 use scanner::Scanner;
-use token::{Literal, Token, TokenType};
-
-//fn test() -> io::Result<()> {
-//    let expr = Expr::Binary(ExprBinary::new(
-//        Expr::Unary(ExprUnary::new(
-//            Token::new(TokenType::Minus, "-".to_string(), None, 1),
-//            Expr::Literal(ExprLiteral::new(Literal::usize(123))),
-//        )),
-//        Token::new(TokenType::Star, "*".to_string(), None, 1),
-//        Expr::Grouping(ExprGrouping::new(Expr::Literal(ExprLiteral::new(
-//            Literal::f64(45.67),
-//        )))),
-//    ));
-//
-//    let a = ast_print(expr);
-//    println!("{a}");
-//
-//    Ok(())
-//}
 
 fn main() -> io::Result<()> {
-    //test()
     rlox_run()
 }
 
@@ -57,11 +37,9 @@ fn rlox_run() -> io::Result<()> {
     scanner.scan_tokens();
 
     let mut parser = Parser::new(scanner.tokens);
-    let expr = parser.parse();
+    let expr = parser.parse()?;
 
-    if let Some(expr) = expr {
-        println!("AST: {}", ast_print(expr));
-    };
+    Interpreter::interpret(expr)?;
 
     Ok(())
 }

@@ -208,10 +208,10 @@ impl Scanner {
         };
 
         let literal = (&self.source[self.start + 1..self.current - 1])
-            .parse::<usize>()
+            .parse::<f64>()
             .unwrap();
 
-        self.add_token(TokenType::Number, Some(Literal::usize(literal)));
+        self.add_token(TokenType::Number, Some(Literal::f64(literal)));
     }
 
     fn identifier(&mut self) {

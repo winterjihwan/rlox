@@ -4,20 +4,18 @@ use std::fmt::Display;
 #[allow(non_camel_case_types)]
 pub enum Literal {
     string(String),
-    usize(usize),
     f64(f64),
     bool(bool),
-    null(()),
+    nil(()),
 }
 
 impl Display for Literal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Literal::string(string) => write!(f, "{}", string),
-            Literal::usize(usize) => write!(f, "{}", usize),
             Literal::f64(f64) => write!(f, "{}", f64),
             Literal::bool(bool) => write!(f, "{}", bool),
-            Literal::null(_) => write!(f, "null"),
+            Literal::nil(_) => write!(f, "nil"),
         }
     }
 }
