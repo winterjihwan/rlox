@@ -1,6 +1,7 @@
 use crate::{
-    errors::ParseError,
-    expr::{Expr, ExprBinary, ExprGrouping, ExprLiteral, ExprUnary},
+    errors::{InterpretError, ParseError},
+    expr::{Expr, ExprAssign, ExprBinary, ExprGrouping, ExprLiteral, ExprUnary, ExprVar},
+    stmt::{Stmt, StmtBlock, StmtVar},
     token::{Literal, Token, TokenType},
 };
 
@@ -14,15 +15,113 @@ impl Parser {
         Self { tokens, current: 0 }
     }
 
-    pub fn parse(&mut self) -> Result<Expr, ParseError> {
-        self.expression().map_err(|err| {
-            println!("PARSE ERROR: {}", err);
-            err
-        })
+    pub fn parse(&mut self) -> Result<Vec<Stmt>, ParseError> {
+        let mut statements = Vec::new();
+        while self.is_at_end() {
+            statements.push(self.declaration())
+        }
+
+        Ok(vec![])
+    }
+
+    fn declaration(&mut self) -> Option<Stmt> {
+        if self.match_token_type(&vec![TokenType::Var]) {
+            match self.var_declaration() {
+                Ok(stmt) => return Some(stmt),
+                Err(err) => {
+                    println!("Prior to synchronize: {}", err);
+                    self.synchronize();
+                    return None;
+                }
+            }
+        };
+
+        match self.statement() {
+            Ok(stmt) => Some(stmt),
+            Err(err) => {
+                println!("Prior to synchronize: {}", err);
+                self.synchronize();
+                None
+            }
+        }
+    }
+
+    fn var_declaration(&mut self) -> Result<Stmt, ParseError> {
+        let name = self.consume(TokenType::Identifier, "Expect variable name.".to_string())?;
+
+        let mut initializer = None;
+        if self.match_token_type(&vec![TokenType::Equal]) {
+            initializer = Some(self.expression()?);
+        }
+
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after variable declaration.".to_string(),
+        )?;
+
+        Ok(Stmt::Var(StmtVar::new(name, initializer)))
+    }
+
+    fn statement(&mut self) -> Result<Stmt, ParseError> {
+        if self.match_token_type(&vec![TokenType::Print]) {
+            return self.print_statement();
+        } else if self.match_token_type(&vec![TokenType::LeftBrace]) {
+            return Ok(Stmt::Block(StmtBlock::new(self.block()?)));
+        };
+
+        self.expression_statement()
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt, ParseError> {
+        let value = self.expression()?;
+        self.consume(TokenType::Semicolon, "Expect ';' after value.".to_string())?;
+        Ok(Stmt::Print(value))
+    }
+
+    fn block(&mut self) -> Result<Vec<Stmt>, ParseError> {
+        let mut statements = Vec::new();
+
+        while !self.is_at_end() {
+            if self.peek().token_type == TokenType::RightBrace {
+                break;
+            }
+            statements.push(self.declaration().unwrap())
+        }
+
+        self.consume(TokenType::RightBrace, "Expect '}' after block.".to_string())?;
+
+        Ok(statements)
+    }
+
+    fn expression_statement(&mut self) -> Result<Stmt, ParseError> {
+        let expr = self.expression()?;
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after expression.".to_string(),
+        )?;
+        Ok(Stmt::Expression(expr))
     }
 
     fn expression(&mut self) -> Result<Expr, ParseError> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<Expr, ParseError> {
+        let expr = self.equality()?;
+
+        if self.match_token_type(&vec![TokenType::Equal]) {
+            let equals = self.previous();
+            let value = self.assignment()?;
+
+            if let Expr::Var(ExprVar { name }) = expr {
+                let name = name;
+                return Ok(Expr::Assign(ExprAssign::new(name, value)));
+            }
+
+            return Err(ParseError::InvalidAssignmentTarget { token: equals });
+        }
+
+        Ok(expr)
     }
 
     fn equality(&mut self) -> Result<Expr, ParseError> {
@@ -67,6 +166,7 @@ impl Parser {
             TokenType::Nil => Expr::Literal(ExprLiteral::new(Literal::nil(()))),
             TokenType::Number => Expr::Literal(ExprLiteral::new(self.previous().literal.unwrap())),
             TokenType::String => Expr::Literal(ExprLiteral::new(self.previous().literal.unwrap())),
+            TokenType::Var => Expr::Var(ExprVar::new(self.previous())),
             TokenType::LeftParen => {
                 let expr = self.expression()?;
                 let _ = self.consume(

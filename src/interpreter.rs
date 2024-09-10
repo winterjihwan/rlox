@@ -1,10 +1,6 @@
 use std::{fmt::Display, io, ops::Add};
 
-use crate::{
-    errors::InterpretError,
-    expr::Expr,
-    token::{Literal, TokenType},
-};
+use crate::{environment::Environment, errors::InterpretError, stmt::Stmt, token::Literal};
 
 #[derive(Debug, Clone)]
 #[allow(non_camel_case_types)]
@@ -66,103 +62,22 @@ impl From<Literal> for Evaluation {
     }
 }
 
-pub struct Interpreter {}
+pub struct Interpreter {
+    pub environment: Environment,
+}
 
 impl Interpreter {
-    pub fn interpret(expr: Expr) -> io::Result<()> {
-        let value = Interpreter::evaluate(expr).map_err(|err| {
-            println!("INTERPRET ERROR: {}", err);
-            err
-        })?;
+    pub fn new() -> Self {
+        Self {
+            environment: Environment::new(),
+        }
+    }
 
-        println!("{value}");
+    pub fn interpret(&mut self, statements: Vec<Stmt>) -> io::Result<()> {
+        statements
+            .into_iter()
+            .try_for_each(|mut stmt| stmt.execute(&mut self.environment))?;
 
         Ok(())
-    }
-
-    fn evaluate(expr: Expr) -> Result<Evaluation, InterpretError> {
-        match expr {
-            Expr::Literal(expr_literal) => Ok(expr_literal.literal.into()),
-            Expr::Grouping(expr_grouping) => Interpreter::evaluate(*expr_grouping.expr),
-            Expr::Unary(expr_unary) => {
-                let right = Interpreter::evaluate(*expr_unary.right)?;
-                Interpreter::evaluate_unary(right, expr_unary.operator.token_type)
-            }
-            Expr::Binary(expr_binary) => {
-                let left = Interpreter::evaluate(*expr_binary.left)?;
-                let right = Interpreter::evaluate(*expr_binary.right)?;
-                Interpreter::evaluate_binary(left, right, expr_binary.operator.token_type)
-            }
-        }
-    }
-
-    fn evaluate_unary(
-        right: Evaluation,
-        operator_type: TokenType,
-    ) -> Result<Evaluation, InterpretError> {
-        match (&right, operator_type) {
-            (Evaluation::f64(n), TokenType::Minus) => Ok(Evaluation::f64(-n)),
-            (Evaluation::bool(b), TokenType::Bang) => Ok(Evaluation::bool(!b)),
-            (Evaluation::nil(()), TokenType::Bang) => Ok(Evaluation::bool(false)),
-            _ => Err(InterpretError::EvaluateUnaryFail {
-                right_evaluation: right,
-                operator_type,
-            }),
-        }
-    }
-
-    fn evaluate_binary(
-        left: Evaluation,
-        right: Evaluation,
-        operator_type: TokenType,
-    ) -> Result<Evaluation, InterpretError> {
-        let evaluation = match operator_type {
-            TokenType::Plus => (left + right)?,
-            TokenType::Minus | TokenType::Slash | TokenType::Star => {
-                if let (Evaluation::f64(n1), Evaluation::f64(n2)) = (&left, &right) {
-                    match operator_type {
-                        TokenType::Minus => Evaluation::f64(n1 - n2),
-                        TokenType::Slash => Evaluation::f64(n1 / n2),
-                        TokenType::Star => Evaluation::f64(n1 * n2),
-                        _ => return Err(Interpreter::binary_fail(left, operator_type, right)),
-                    }
-                } else {
-                    return Err(Interpreter::binary_fail(left, operator_type, right));
-                }
-            }
-            TokenType::Greater
-            | TokenType::GreaterEqual
-            | TokenType::Less
-            | TokenType::LessEqual => {
-                if let (Evaluation::f64(n1), Evaluation::f64(n2)) = (&left, &right) {
-                    match operator_type {
-                        TokenType::Greater => Evaluation::bool(n1 > n2),
-                        TokenType::GreaterEqual => Evaluation::bool(n1 >= n2),
-                        TokenType::Less => Evaluation::bool(n1 < n2),
-                        TokenType::LessEqual => Evaluation::bool(n1 <= n2),
-                        _ => return Err(Interpreter::binary_fail(left, operator_type, right)),
-                    }
-                } else {
-                    return Err(Interpreter::binary_fail(left, operator_type, right));
-                }
-            }
-            TokenType::BangEqual => Evaluation::bool(left != right),
-            TokenType::EqualEqual => Evaluation::bool(left == right),
-            _ => return Err(Interpreter::binary_fail(left, operator_type, right)),
-        };
-
-        Ok(evaluation)
-    }
-
-    fn binary_fail(
-        left: Evaluation,
-        operator_type: TokenType,
-        right: Evaluation,
-    ) -> InterpretError {
-        InterpretError::EvaluateBinaryFail {
-            left_evaluation: left,
-            operator_type,
-            right_evaluation: right,
-        }
     }
 }

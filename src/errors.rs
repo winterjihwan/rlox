@@ -15,6 +15,9 @@ pub enum ParseError {
     #[error("{} at end", token.line)]
     ParseEOF { token: Token },
 
+    #[error("Invalid assignment target, {:#?}", token)]
+    InvalidAssignmentTarget { token: Token },
+
     #[error("{} at '{}' {}", token.line, token.lexeme,  message)]
     ParseFail { token: Token, message: String },
 }
@@ -27,11 +30,11 @@ impl From<ParseError> for io::Error {
 
 #[derive(Error, Debug)]
 pub enum InterpretError {
-    #[error("I/O fail, err: {err}")]
-    IoFail { err: String },
-
     #[error("{err}")]
     RuntimeError { err: String },
+
+    #[error("Undefined variable '{lexeme}'.")]
+    UndefinedVariable { lexeme: String },
 
     #[error("Evaluation add overloader error, lhs: {lhs:#?}, rhs: {rhs:#?}")]
     EvaluationAddOverloaderError { lhs: Evaluation, rhs: Evaluation },
@@ -52,9 +55,6 @@ pub enum InterpretError {
         operator_type: TokenType,
         right_evaluation: Evaluation,
     },
-
-    #[error("{} at '{}' {}", token.line, token.lexeme,  message)]
-    ParseFail { token: Token, message: String },
 }
 
 impl From<InterpretError> for io::Error {

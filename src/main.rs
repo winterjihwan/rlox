@@ -1,10 +1,12 @@
 mod ast;
+mod environment;
 mod errors;
 mod expr;
 mod interpreter;
 mod parser;
 mod reserved;
 mod scanner;
+mod stmt;
 mod token;
 
 use std::{
@@ -37,9 +39,10 @@ fn rlox_run() -> io::Result<()> {
     scanner.scan_tokens();
 
     let mut parser = Parser::new(scanner.tokens);
-    let expr = parser.parse()?;
+    let statements = parser.parse()?;
 
-    Interpreter::interpret(expr)?;
+    let mut interpreter = Interpreter::new();
+    interpreter.interpret(statements)?;
 
     Ok(())
 }
