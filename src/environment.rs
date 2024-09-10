@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{errors::InterpretError, interpreter::Evaluation, token::Token};
 
+#[derive(Debug, Clone)]
 pub struct Environment {
     pub env: HashMap<String, Option<Evaluation>>,
     pub enclosing: Option<Box<Environment>>,
@@ -29,7 +30,10 @@ impl Environment {
         }
 
         Err(InterpretError::RuntimeError {
-            err: format!("Undefined variable '{}'.", name.lexeme),
+            err: format!(
+                "Undefined variable '{}' of token '{:#?}'.",
+                name.lexeme, name
+            ),
         })
     }
 

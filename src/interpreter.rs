@@ -76,7 +76,57 @@ impl Interpreter {
     pub fn interpret(&mut self, statements: Vec<Stmt>) -> io::Result<()> {
         statements
             .into_iter()
-            .try_for_each(|mut stmt| stmt.execute(&mut self.environment))?;
+            .try_for_each(|mut stmt| self.execute(&mut stmt))?;
+
+        Ok(())
+    }
+
+    pub fn execute(&mut self, stmt: &mut Stmt) -> Result<(), InterpretError> {
+        self.evaluate(stmt)
+    }
+
+    pub fn evaluate(&mut self, stmt: &mut Stmt) -> Result<(), InterpretError> {
+        match stmt {
+            Stmt::Block(stmt) => {
+                self.execute_block(&mut stmt.statements, Environment::new())?;
+                Ok(())
+            }
+            Stmt::Expression(expr) => {
+                let evl = expr.evaluate(&mut self.environment)?;
+                Ok(())
+            }
+            Stmt::Print(value) => {
+                let value = value.evaluate(&mut self.environment)?;
+                println!("{value}");
+                Ok(())
+            }
+            Stmt::Var(var) => {
+                let a = var
+                    .initializer
+                    .as_mut()
+                    .map(|expr| expr.evaluate(&mut self.environment))
+                    .transpose()?;
+
+                self.environment.define(var.name.lexeme.to_string(), a);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn execute_block(
+        &mut self,
+        statements: &mut Vec<Stmt>,
+        environment: Environment,
+    ) -> Result<(), InterpretError> {
+        let previous = &self.environment.clone();
+
+        self.environment.enclosing = Some(Box::new(environment));
+
+        statements
+            .iter_mut()
+            .try_for_each(|mut stmt| self.execute(&mut stmt))?;
+
+        self.environment = previous.clone();
 
         Ok(())
     }

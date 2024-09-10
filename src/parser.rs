@@ -1,5 +1,5 @@
 use crate::{
-    errors::{InterpretError, ParseError},
+    errors::ParseError,
     expr::{Expr, ExprAssign, ExprBinary, ExprGrouping, ExprLiteral, ExprUnary, ExprVar},
     stmt::{Stmt, StmtBlock, StmtVar},
     token::{Literal, Token, TokenType},
@@ -17,15 +17,20 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Vec<Stmt>, ParseError> {
         let mut statements = Vec::new();
-        while self.is_at_end() {
+        while !self.is_at_end() {
             statements.push(self.declaration())
         }
 
-        Ok(vec![])
+        let stmts = statements
+            .into_iter()
+            .filter_map(|stmt| Some(stmt.unwrap()))
+            .collect();
+
+        Ok(stmts)
     }
 
     fn declaration(&mut self) -> Option<Stmt> {
-        if self.match_token_type(&vec![TokenType::Var]) {
+        if self.match_token(&vec![TokenType::Var]) {
             match self.var_declaration() {
                 Ok(stmt) => return Some(stmt),
                 Err(err) => {
@@ -50,7 +55,7 @@ impl Parser {
         let name = self.consume(TokenType::Identifier, "Expect variable name.".to_string())?;
 
         let mut initializer = None;
-        if self.match_token_type(&vec![TokenType::Equal]) {
+        if self.match_token(&vec![TokenType::Equal]) {
             initializer = Some(self.expression()?);
         }
 
@@ -63,9 +68,9 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt, ParseError> {
-        if self.match_token_type(&vec![TokenType::Print]) {
+        if self.match_token(&vec![TokenType::Print]) {
             return self.print_statement();
-        } else if self.match_token_type(&vec![TokenType::LeftBrace]) {
+        } else if self.match_token(&vec![TokenType::LeftBrace]) {
             return Ok(Stmt::Block(StmtBlock::new(self.block()?)));
         };
 
@@ -109,7 +114,7 @@ impl Parser {
     fn assignment(&mut self) -> Result<Expr, ParseError> {
         let expr = self.equality()?;
 
-        if self.match_token_type(&vec![TokenType::Equal]) {
+        if self.match_token(&vec![TokenType::Equal]) {
             let equals = self.previous();
             let value = self.assignment()?;
 
@@ -160,13 +165,14 @@ impl Parser {
             return Err(ParseError::ParseEOF { token: self.peek() });
         }
 
-        let expr = match self.peek().token_type {
+        let expr = match self.peek_consume().token_type {
             TokenType::True => Expr::Literal(ExprLiteral::new(Literal::bool(true))),
             TokenType::False => Expr::Literal(ExprLiteral::new(Literal::bool(false))),
             TokenType::Nil => Expr::Literal(ExprLiteral::new(Literal::nil(()))),
             TokenType::Number => Expr::Literal(ExprLiteral::new(self.previous().literal.unwrap())),
             TokenType::String => Expr::Literal(ExprLiteral::new(self.previous().literal.unwrap())),
-            TokenType::Var => Expr::Var(ExprVar::new(self.previous())),
+            TokenType::Identifier => Expr::Var(ExprVar::new(self.previous())),
+            TokenType::Var => Expr::Var(ExprVar::new(self.peek())),
             TokenType::LeftParen => {
                 let expr = self.expression()?;
                 let _ = self.consume(
@@ -227,7 +233,7 @@ impl Parser {
         })
     }
 
-    fn match_token_type(&mut self, token_types: &Vec<TokenType>) -> bool {
+    fn match_token(&mut self, token_types: &Vec<TokenType>) -> bool {
         if self.is_at_end() {
             return false;
         }
@@ -257,6 +263,13 @@ impl Parser {
         self.tokens.get(self.current).unwrap().clone()
     }
 
+    fn peek_consume(&mut self) -> Token {
+        let current_token = self.tokens.get(self.current).unwrap().clone();
+        self.current += 1;
+
+        current_token
+    }
+
     fn previous(&self) -> Token {
         self.tokens.get(self.current - 1).unwrap().clone()
     }
@@ -268,7 +281,7 @@ impl Parser {
     ) -> Result<Expr, ParseError> {
         let mut expr = parse_fn(self)?;
 
-        while self.match_token_type(&match_types) {
+        while self.match_token(&match_types) {
             let operator = self.previous();
             let right = parse_fn(self)?;
             expr = Expr::Binary(ExprBinary::new(expr, operator, right))
@@ -282,7 +295,7 @@ impl Parser {
         parse_fn: fn(&mut Self) -> Result<Expr, ParseError>,
         match_types: Vec<TokenType>,
     ) -> Result<Expr, ParseError> {
-        if self.match_token_type(&match_types) {
+        if self.match_token(&match_types) {
             let operator = self.previous();
             let right = self.unary_expr(parse_fn, match_types)?;
             return Ok(Expr::Unary(ExprUnary::new(operator, right)));
