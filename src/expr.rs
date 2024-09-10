@@ -11,6 +11,7 @@ pub enum Expr {
     Binary(ExprBinary),
     Grouping(ExprGrouping),
     Literal(ExprLiteral),
+    Logical(ExprLogical),
     Unary(ExprUnary),
     Var(ExprVar),
 }
@@ -28,6 +29,7 @@ impl Expr {
                 }
                 Self::Grouping(expr) => Expr::parenthesize("group".to_string(), vec![*expr.expr]),
                 Self::Literal(expr) => Expr::parenthesize(expr.literal.to_string(), Vec::new()),
+                Self::Logical(expr) => unimplemented!(),
                 Self::Unary(expr) => Expr::parenthesize(expr.operator.lexeme, vec![*expr.right]),
                 Self::Var(expr) => unimplemented!(),
             };
@@ -49,6 +51,19 @@ impl Expr {
             }
             Self::Literal(expr_literal) => Ok(expr_literal.literal.clone().into()),
             Self::Grouping(expr_grouping) => expr_grouping.expr.evaluate(environment),
+            Self::Logical(expr) => {
+                let left = expr.left.evaluate(environment)?;
+
+                if let Evaluation::bool(b) = left {
+                    if (expr.operator.token_type == TokenType::Or && b)
+                        || (expr.operator.token_type == TokenType::And && !b)
+                    {
+                        return Ok(left);
+                    }
+                };
+
+                expr.right.evaluate(environment)
+            }
             Self::Unary(expr_unary) => {
                 let right = expr_unary.right.evaluate(environment)?;
                 Self::evaluate_unary(right, expr_unary.operator.token_type)
@@ -186,6 +201,23 @@ pub struct ExprLiteral {
 impl ExprLiteral {
     pub fn new(literal: Literal) -> Self {
         Self { literal }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExprLogical {
+    pub left: Box<Expr>,
+    pub operator: Token,
+    pub right: Box<Expr>,
+}
+
+impl ExprLogical {
+    pub fn new(left: Expr, operator: Token, right: Expr) -> Self {
+        Self {
+            left: Box::new(left),
+            operator,
+            right: Box::new(right),
+        }
     }
 }
 

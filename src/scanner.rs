@@ -207,7 +207,7 @@ impl Scanner {
             //TODO: return here as fsize
         };
 
-        let literal = (&self.source[self.start + 1..self.current - 1])
+        let literal = (&self.source[self.start..self.current])
             .parse::<f64>()
             .unwrap();
 

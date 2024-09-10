@@ -9,20 +9,11 @@ pub enum Stmt {
     Expression(StmtExpression),
     Print(StmtPrint),
     Var(StmtVar),
+    While(StmtWhile),
+    If(StmtIf),
 }
 
 impl Stmt {}
-
-#[derive(Debug, Clone)]
-pub struct StmtVar {
-    pub name: Token,
-    pub initializer: Option<Expr>,
-}
-impl StmtVar {
-    pub fn new(name: Token, initializer: Option<Expr>) -> Self {
-        Self { name, initializer }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct StmtBlock {
@@ -32,5 +23,49 @@ pub struct StmtBlock {
 impl StmtBlock {
     pub fn new(statements: Vec<Stmt>) -> Self {
         Self { statements }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StmtWhile {
+    pub condition: Expr,
+    pub body: Box<Stmt>,
+}
+
+impl StmtWhile {
+    pub fn new(condition: Expr, body: Stmt) -> Self {
+        Self {
+            condition,
+            body: Box::new(body),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StmtVar {
+    pub name: Token,
+    pub initializer: Option<Expr>,
+}
+
+impl StmtVar {
+    pub fn new(name: Token, initializer: Option<Expr>) -> Self {
+        Self { name, initializer }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StmtIf {
+    pub condition: Expr,
+    pub then_branch: Box<Stmt>,
+    pub else_branch: Option<Box<Stmt>>,
+}
+
+impl StmtIf {
+    pub fn new(condition: Expr, then_branch: Stmt, else_branch: Option<Stmt>) -> Self {
+        Self {
+            condition,
+            then_branch: Box::new(then_branch),
+            else_branch: else_branch.map(|stmt| Box::new(stmt)),
+        }
     }
 }

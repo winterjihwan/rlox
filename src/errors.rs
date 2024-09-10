@@ -36,6 +36,9 @@ pub enum InterpretError {
     #[error("Undefined variable '{lexeme}'.")]
     UndefinedVariable { lexeme: String },
 
+    #[error("Incorrect operand type, type: {operand_type:?}")]
+    IncorrectOperandType { operand_type: TokenType },
+
     #[error("Evaluation add overloader error, lhs: {lhs:#?}, rhs: {rhs:#?}")]
     EvaluationAddOverloaderError { lhs: Evaluation, rhs: Evaluation },
 

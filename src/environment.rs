@@ -45,6 +45,7 @@ impl Environment {
 
         if let Some(enc) = &mut self.enclosing {
             enc.assign(name, value)?;
+            return Ok(());
         };
 
         Err(InterpretError::UndefinedVariable {

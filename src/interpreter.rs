@@ -1,4 +1,4 @@
-use std::{fmt::Display, io, ops::Add};
+use std::{fmt::Display, io, mem, ops::Add};
 
 use crate::{environment::Environment, errors::InterpretError, stmt::Stmt, token::Literal};
 
@@ -87,6 +87,22 @@ impl Interpreter {
 
     pub fn evaluate(&mut self, stmt: &mut Stmt) -> Result<(), InterpretError> {
         match stmt {
+            Stmt::While(stmt) => {
+                while let Evaluation::bool(true) = stmt.condition.evaluate(&mut self.environment)? {
+                    self.execute(&mut stmt.body)?;
+                }
+                Ok(())
+            }
+            Stmt::If(stmt) => {
+                if let Evaluation::bool(truthy) = stmt.condition.evaluate(&mut self.environment)? {
+                    if truthy {
+                        self.execute(&mut stmt.then_branch)?
+                    } else if let Some(_) = stmt.else_branch {
+                        self.execute(&mut stmt.else_branch.clone().unwrap())?
+                    }
+                };
+                Ok(())
+            }
             Stmt::Block(stmt) => {
                 self.execute_block(&mut stmt.statements, Environment::new())?;
                 Ok(())
@@ -118,15 +134,14 @@ impl Interpreter {
         statements: &mut Vec<Stmt>,
         environment: Environment,
     ) -> Result<(), InterpretError> {
-        let previous = &self.environment.clone();
-
-        self.environment.enclosing = Some(Box::new(environment));
+        let previous = mem::replace(&mut self.environment, environment);
+        self.environment.enclosing = Some(Box::new(previous.clone()));
 
         statements
             .iter_mut()
             .try_for_each(|mut stmt| self.execute(&mut stmt))?;
 
-        self.environment = previous.clone();
+        self.environment = *self.environment.enclosing.take().unwrap();
 
         Ok(())
     }
