@@ -1,7 +1,9 @@
+use std::error::Error;
+
 use crate::{
     errors::ParseError,
-    expr::{Expr, ExprAssign, ExprBinary, ExprGrouping, ExprLiteral, ExprUnary, ExprVar},
-    stmt::{Stmt, StmtBlock, StmtIf, StmtVar, StmtWhile},
+    expr::{Expr, ExprAssign, ExprBinary, ExprCall, ExprGrouping, ExprLiteral, ExprUnary, ExprVar},
+    stmt::{Stmt, StmtBlock, StmtFunction, StmtIf, StmtVar, StmtWhile},
     token::{Literal, Token, TokenType},
 };
 
@@ -68,6 +70,9 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt, ParseError> {
+        if self.match_token(&vec![TokenType::Fun]) {
+            return self.function_statement("function".to_string());
+        };
         if self.match_token(&vec![TokenType::For]) {
             return self.for_statement();
         };
@@ -85,6 +90,44 @@ impl Parser {
         };
 
         self.expression_statement()
+    }
+
+    fn function_statement(&mut self, kind: String) -> Result<Stmt, ParseError> {
+        let name = self.consume(TokenType::Identifier, format!("Expect {} name.", kind))?;
+        self.consume(
+            TokenType::LeftParen,
+            format!("Expect '(' after {} name.", kind),
+        )?;
+
+        let mut parameters = Vec::new();
+        if !self.check(TokenType::RightParen)? {
+            loop {
+                if parameters.len() > 255 {
+                    return Err(ParseError::ParametersOverflow { token: self.peek() });
+                }
+
+                parameters
+                    .push(self.consume(TokenType::Comma, "Expect parameter name.".to_string())?);
+
+                if let false = self.match_token(&vec![TokenType::RightParen]) {
+                    break;
+                }
+            }
+        }
+
+        self.consume(
+            TokenType::RightParen,
+            "Expect ')' after parameters.".to_string(),
+        )?;
+
+        self.consume(
+            TokenType::LeftBrace,
+            format!("Expect '{{' before {} body.", kind),
+        )?;
+
+        let body = self.block()?;
+
+        Ok(Stmt::Function(StmtFunction::new(name, parameters, body)))
     }
 
     fn for_statement(&mut self) -> Result<Stmt, ParseError> {
@@ -260,7 +303,44 @@ impl Parser {
     }
 
     fn unary(&mut self) -> Result<Expr, ParseError> {
-        self.unary_expr(Self::primary, vec![TokenType::Bang, TokenType::Minus])
+        self.unary_expr(Self::call, vec![TokenType::Bang, TokenType::Minus])
+    }
+
+    fn call(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.primary()?;
+
+        loop {
+            if self.match_token(&vec![TokenType::LeftParen]) {
+                expr = self.finish_call(expr)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> Result<Expr, ParseError> {
+        let mut arguments = Vec::new();
+
+        if !self.check(TokenType::RightParen)? {
+            loop {
+                if arguments.len() >= 255 {
+                    return Err(ParseError::ArgumentsOverflow { token: self.peek() });
+                }
+                arguments.push(self.expression()?);
+                if self.match_token(&vec![TokenType::Comma]) {
+                    break;
+                }
+            }
+        }
+
+        let paren = self.consume(
+            TokenType::RightParen,
+            "Expect ')' after arguments.".to_string(),
+        )?;
+
+        Ok(Expr::Call(ExprCall::new(callee, paren, arguments)))
     }
 
     fn primary(&mut self) -> Result<Expr, ParseError> {

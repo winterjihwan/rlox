@@ -15,6 +15,12 @@ pub enum ParseError {
     #[error("{} at end", token.line)]
     ParseEOF { token: Token },
 
+    #[error("Can't have more than 255 arguments, {:#?}", token)]
+    ArgumentsOverflow { token: Token },
+
+    #[error("Can't have more than 255 parameters, {:#?}", token)]
+    ParametersOverflow { token: Token },
+
     #[error("Invalid assignment target, {:#?}", token)]
     InvalidAssignmentTarget { token: Token },
 
@@ -35,6 +41,9 @@ pub enum InterpretError {
 
     #[error("Undefined variable '{lexeme}'.")]
     UndefinedVariable { lexeme: String },
+
+    #[error("Invalid cast type, expect: {expect}, actual: {actual}")]
+    CastError { expect: String, actual: String },
 
     #[error("Incorrect operand type, type: {operand_type:?}")]
     IncorrectOperandType { operand_type: TokenType },

@@ -11,6 +11,7 @@ pub enum Stmt {
     Var(StmtVar),
     While(StmtWhile),
     If(StmtIf),
+    Function(StmtFunction),
 }
 
 impl Stmt {}
@@ -67,5 +68,18 @@ impl StmtIf {
             then_branch: Box::new(then_branch),
             else_branch: else_branch.map(|stmt| Box::new(stmt)),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StmtFunction {
+    pub name: Token,
+    pub params: Vec<Token>,
+    pub body: Vec<Stmt>,
+}
+
+impl StmtFunction {
+    pub fn new(name: Token, params: Vec<Token>, body: Vec<Stmt>) -> Self {
+        Self { name, params, body }
     }
 }

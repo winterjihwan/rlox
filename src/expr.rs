@@ -1,7 +1,7 @@
 use crate::{
     environment::Environment,
     errors::InterpretError,
-    interpreter::Evaluation,
+    interpreter::{Evaluation, RloxCallable},
     token::{Literal, Token, TokenType},
 };
 
@@ -9,6 +9,7 @@ use crate::{
 pub enum Expr {
     Assign(ExprAssign),
     Binary(ExprBinary),
+    Call(ExprCall),
     Grouping(ExprGrouping),
     Literal(ExprLiteral),
     Logical(ExprLogical),
@@ -27,6 +28,7 @@ impl Expr {
                 Self::Binary(expr) => {
                     Expr::parenthesize(expr.operator.lexeme, vec![*expr.left, *expr.right])
                 }
+                Self::Call(expr_literal) => unimplemented!(),
                 Self::Grouping(expr) => Expr::parenthesize("group".to_string(), vec![*expr.expr]),
                 Self::Literal(expr) => Expr::parenthesize(expr.literal.to_string(), Vec::new()),
                 Self::Logical(expr) => unimplemented!(),
@@ -49,7 +51,29 @@ impl Expr {
                 environment.assign(&expr.name, value.clone())?;
                 Ok(value)
             }
-            Self::Literal(expr_literal) => Ok(expr_literal.literal.clone().into()),
+            Self::Literal(expr) => Ok(expr.literal.clone().into()),
+            Self::Call(expr) => {
+                let callee = expr.callee.evaluate(environment)?;
+
+                let mut arguments = Vec::new();
+                expr.arguments.iter_mut().try_for_each(|arg| {
+                    arguments.push(arg.evaluate(environment)?);
+                    Ok::<(), InterpretError>(())
+                })?;
+
+                let mut function: RloxCallable = Result::from(callee)?;
+                if arguments.len() != function.arity.into() {
+                    return Err(InterpretError::RuntimeError {
+                        err: format!(
+                            "Expected '{}' arguments but got '{}'",
+                            function.arity,
+                            arguments.len()
+                        ),
+                    });
+                }
+
+                Ok((function.fun)(environment, arguments))
+            }
             Self::Grouping(expr_grouping) => expr_grouping.expr.evaluate(environment),
             Self::Logical(expr) => {
                 let left = expr.left.evaluate(environment)?;
@@ -176,6 +200,23 @@ impl ExprBinary {
             left: Box::new(left_expr),
             operator: token,
             right: Box::new(right_expr),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExprCall {
+    pub callee: Box<Expr>,
+    pub paren: Token,
+    pub arguments: Vec<Expr>,
+}
+
+impl ExprCall {
+    pub fn new(callee: Expr, paren: Token, arguments: Vec<Expr>) -> Self {
+        Self {
+            callee: Box::new(callee),
+            paren,
+            arguments: Vec::new(),
         }
     }
 }
