@@ -2,37 +2,40 @@ use std::{
     fmt::{Debug, Display},
     io, mem,
     ops::Add,
-    process::exit,
+    sync::{Arc, Mutex},
 };
 
-use crate::{environment::Environment, errors::InterpretError, stmt::Stmt, token::Literal};
+use crate::{
+    environment::Environment,
+    errors::InterpretError,
+    expr::Expr,
+    stmt::{Stmt, StmtFunction},
+    token::{Literal, TokenType},
+};
 
-#[derive(Debug)]
+#[derive(Clone)]
 #[allow(non_camel_case_types)]
 pub enum Evaluation {
     string(String),
     f64(f64),
     bool(bool),
     nil(()),
-    callable(RloxCallable),
+    callable(Arc<Mutex<dyn Callable>>),
 }
 
-impl Clone for Evaluation {
-    fn clone(&self) -> Self {
+impl Debug for Evaluation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Evaluation::string(string) => Evaluation::string(string.clone()),
-            Evaluation::f64(f64) => Evaluation::f64(f64.clone()),
-            Evaluation::bool(bool) => Evaluation::bool(bool.clone()),
-            Evaluation::nil(()) => Evaluation::nil(()),
-            Evaluation::callable(fun) => {
-                println!("Invalid clone operation to fn, {fun:#?}");
-                exit(16)
-            }
+            Evaluation::string(string) => write!(f, "{string}"),
+            Evaluation::f64(f64) => write!(f, "{f64}"),
+            Evaluation::bool(bool) => write!(f, "{bool}"),
+            Evaluation::nil(()) => write!(f, "nil"),
+            Evaluation::callable(_) => write!(f, "fn <>"),
         }
     }
 }
 
-impl From<Evaluation> for Result<RloxCallable, InterpretError> {
+impl From<Evaluation> for Result<Arc<Mutex<dyn Callable>>, InterpretError> {
     fn from(value: Evaluation) -> Self {
         if let Evaluation::callable(rlox_callable) = value {
             Ok(rlox_callable)
@@ -45,25 +48,86 @@ impl From<Evaluation> for Result<RloxCallable, InterpretError> {
     }
 }
 
-pub struct RloxCallable {
-    pub arity: u8,
-    pub name: String,
-    pub fun: Box<dyn FnMut(&mut Environment, Vec<Evaluation>) -> Evaluation>,
+pub trait Callable {
+    fn arity(&self) -> u8;
+    fn call(
+        &mut self,
+        interpreter: Interpreter,
+        arguments: Vec<Evaluation>,
+    ) -> Result<Evaluation, InterpretError>;
 }
 
-impl RloxCallable {
-    pub fn new(
-        arity: u8,
-        name: String,
-        fun: Box<dyn FnMut(&mut Environment, Vec<Evaluation>) -> Evaluation>,
-    ) -> Self {
-        Self { arity, name, fun }
+pub struct NativeFunction {
+    pub arity: u8,
+    pub fun: Option<Box<dyn FnMut(Interpreter, Vec<Evaluation>) -> Evaluation>>,
+}
+
+impl NativeFunction {
+    pub fn new(fun: Box<dyn FnMut(Interpreter, Vec<Evaluation>) -> Evaluation>) -> Self {
+        Self {
+            arity: 0,
+            fun: Some(fun),
+        }
     }
 }
 
-impl Debug for RloxCallable {
+impl Callable for NativeFunction {
+    fn arity(&self) -> u8 {
+        self.arity
+    }
+
+    fn call(
+        &mut self,
+        interpreter: Interpreter,
+        arguments: Vec<Evaluation>,
+    ) -> Result<Evaluation, InterpretError> {
+        Ok((self.fun.as_mut().unwrap())(interpreter, arguments))
+    }
+}
+
+#[derive(Clone)]
+pub struct RloxFunction {
+    pub arity: u8,
+    pub declaration: StmtFunction,
+}
+
+impl RloxFunction {
+    pub fn new(arity: u8, declaration: StmtFunction) -> Self {
+        Self { arity, declaration }
+    }
+}
+
+impl Callable for RloxFunction {
+    fn arity(&self) -> u8 {
+        self.arity
+    }
+
+    fn call(
+        &mut self,
+        mut interpreter: Interpreter,
+        arguments: Vec<Evaluation>,
+    ) -> Result<Evaluation, InterpretError> {
+        let mut environment = Environment::new();
+        environment.enclosing = Some(Box::new(interpreter.globals.clone()));
+
+        let mut declaration = self.declaration.clone();
+
+        for i in 0..declaration.params.len() {
+            environment.define(
+                declaration.params[i].lexeme.to_string(),
+                Some(arguments[i].clone()),
+            )
+        }
+
+        interpreter.stmt_execute_block(&mut declaration.body, environment)?;
+
+        Ok(Evaluation::nil(()))
+    }
+}
+
+impl Debug for RloxFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "fn<> {}", self.name)
+        write!(f, "<fn {}>", self.declaration.clone().name.lexeme)
     }
 }
 
@@ -74,7 +138,7 @@ impl Display for Evaluation {
             Evaluation::f64(f64) => write!(f, "{f64:.2}"),
             Evaluation::bool(bool) => write!(f, "{bool}"),
             Evaluation::nil(()) => write!(f, "nil"),
-            Evaluation::callable(fun) => write!(f, "fn <{fun:#?}>"),
+            Evaluation::callable(fun) => write!(f, "fn <>"),
         }
     }
 }
@@ -119,6 +183,7 @@ impl From<Literal> for Evaluation {
     }
 }
 
+#[derive(Clone)]
 pub struct Interpreter {
     pub globals: Environment,
     pub environment: Environment,
@@ -128,7 +193,7 @@ impl Interpreter {
     pub fn new() -> Self {
         let mut globals = Environment::new();
 
-        let clock_closure = |_: &mut Environment, _: Vec<Evaluation>| {
+        let clock_closure = |_: Interpreter, _: Vec<Evaluation>| {
             let call = || {
                 let time = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -143,10 +208,11 @@ impl Interpreter {
             Evaluation::nil(())
         };
 
-        let clock_callable = RloxCallable::new(0, "clock".to_string(), Box::new(clock_closure));
+        let clock_callable = NativeFunction::new(Box::new(clock_closure));
+
         globals.define(
             "clock".to_string(),
-            Some(Evaluation::callable(clock_callable)),
+            Some(Evaluation::callable(Arc::new(Mutex::new(clock_callable)))),
         );
 
         Self {
@@ -158,47 +224,53 @@ impl Interpreter {
     pub fn interpret(&mut self, statements: Vec<Stmt>) -> io::Result<()> {
         statements
             .into_iter()
-            .try_for_each(|mut stmt| self.execute(&mut stmt))?;
+            .try_for_each(|mut stmt| self.stmt_execute(&mut stmt))?;
 
         Ok(())
     }
 
-    pub fn execute(&mut self, stmt: &mut Stmt) -> Result<(), InterpretError> {
-        self.evaluate(stmt)
+    pub fn stmt_execute(&mut self, stmt: &mut Stmt) -> Result<(), InterpretError> {
+        self.stmt_evaluate(stmt)
     }
 
-    pub fn evaluate(&mut self, stmt: &mut Stmt) -> Result<(), InterpretError> {
+    pub fn stmt_evaluate(&mut self, stmt: &mut Stmt) -> Result<(), InterpretError> {
         match stmt {
             Stmt::While(stmt) => {
-                while let Evaluation::bool(true) = stmt.condition.evaluate(&mut self.environment)? {
-                    self.execute(&mut stmt.body)?;
+                while let Evaluation::bool(true) = self.evaluate(stmt.condition.clone())? {
+                    self.stmt_execute(&mut stmt.body)?;
                 }
                 Ok(())
             }
             Stmt::If(stmt) => {
-                if let Evaluation::bool(truthy) = stmt.condition.evaluate(&mut self.environment)? {
+                if let Evaluation::bool(truthy) = self.evaluate(stmt.condition.clone())? {
                     if truthy {
-                        self.execute(&mut stmt.then_branch)?
+                        self.stmt_execute(&mut stmt.then_branch)?
                     } else if let Some(_) = stmt.else_branch {
-                        self.execute(&mut stmt.else_branch.clone().unwrap())?
+                        self.stmt_execute(&mut stmt.else_branch.clone().unwrap())?
                     }
                 };
                 Ok(())
             }
             Stmt::Function(stmt) => {
-                unimplemented!();
+                let function = RloxFunction::new(stmt.params.len() as u8, stmt.clone());
+
+                self.environment.define(
+                    stmt.name.lexeme.to_string(),
+                    Some(Evaluation::callable(Arc::new(Mutex::new(function)))),
+                );
+
                 Ok(())
             }
             Stmt::Block(stmt) => {
-                self.execute_block(&mut stmt.statements, Environment::new())?;
+                self.stmt_execute_block(&mut stmt.statements, Environment::new())?;
                 Ok(())
             }
             Stmt::Expression(expr) => {
-                let evl = expr.evaluate(&mut self.environment)?;
+                let evl = self.evaluate(expr.clone())?;
                 Ok(())
             }
             Stmt::Print(value) => {
-                let value = value.evaluate(&mut self.environment)?;
+                let value = self.evaluate(value.clone())?;
                 println!("{value}");
                 Ok(())
             }
@@ -206,7 +278,7 @@ impl Interpreter {
                 let a = var
                     .initializer
                     .as_mut()
-                    .map(|expr| expr.evaluate(&mut self.environment))
+                    .map(|expr| self.evaluate(expr.clone()))
                     .transpose()?;
 
                 self.environment.define(var.name.lexeme.to_string(), a);
@@ -215,7 +287,7 @@ impl Interpreter {
         }
     }
 
-    pub fn execute_block(
+    pub fn stmt_execute_block(
         &mut self,
         statements: &mut Vec<Stmt>,
         environment: Environment,
@@ -225,10 +297,142 @@ impl Interpreter {
 
         statements
             .iter_mut()
-            .try_for_each(|mut stmt| self.execute(&mut stmt))?;
+            .try_for_each(|mut stmt| self.stmt_execute(&mut stmt))?;
 
         self.environment = *self.environment.enclosing.take().unwrap();
 
         Ok(())
+    }
+
+    pub fn evaluate(&mut self, expr: Expr) -> Result<Evaluation, InterpretError> {
+        match expr {
+            Expr::Assign(expr) => {
+                let value = self.evaluate(*expr.value)?;
+                self.environment.assign(&expr.name, value.clone())?;
+                Ok(value)
+            }
+            Expr::Literal(expr) => Ok(expr.literal.clone().into()),
+            Expr::Call(expr) => {
+                let callee = self.evaluate(*expr.callee.clone())?;
+
+                let mut arguments = Vec::new();
+                expr.arguments.into_iter().try_for_each(|arg| {
+                    arguments.push(self.evaluate(arg)?);
+                    Ok::<(), InterpretError>(())
+                })?;
+
+                let function: Arc<Mutex<dyn Callable>> = Result::from(callee)?;
+                let mut function_acq = function.lock().unwrap();
+
+                let arity = function_acq.arity().into();
+
+                if arguments.len() != arity {
+                    return Err(InterpretError::RuntimeError {
+                        err: format!(
+                            "Expected '{}' arguments but got '{}'",
+                            arity,
+                            arguments.len()
+                        ),
+                    });
+                }
+
+                function_acq.call(self.clone(), arguments)?;
+                Ok(Evaluation::nil(()))
+            }
+            Expr::Grouping(expr_grouping) => self.evaluate(*expr_grouping.expr),
+            Expr::Logical(expr) => {
+                let left = self.evaluate(*expr.left)?;
+
+                if let Evaluation::bool(b) = left {
+                    if (expr.operator.token_type == TokenType::Or && b)
+                        || (expr.operator.token_type == TokenType::And && !b)
+                    {
+                        return Ok(left);
+                    }
+                };
+
+                self.evaluate(*expr.right)
+            }
+            Expr::Unary(expr_unary) => {
+                let right = self.evaluate(*expr_unary.right)?;
+                Self::evaluate_unary(right, expr_unary.operator.token_type)
+            }
+            Expr::Binary(expr_binary) => {
+                let left = self.evaluate(*expr_binary.left)?;
+                let right = self.evaluate(*expr_binary.right)?;
+                Self::evaluate_binary(left, right, expr_binary.operator.token_type)
+            }
+            Expr::Var(expr) => self.environment.get(&expr.name),
+        }
+    }
+
+    fn evaluate_unary(
+        right: Evaluation,
+        operator_type: TokenType,
+    ) -> Result<Evaluation, InterpretError> {
+        match (&right, operator_type) {
+            (Evaluation::f64(n), TokenType::Minus) => Ok(Evaluation::f64(-n)),
+            (Evaluation::bool(b), TokenType::Bang) => Ok(Evaluation::bool(!b)),
+            (Evaluation::nil(()), TokenType::Bang) => Ok(Evaluation::bool(false)),
+            _ => Err(InterpretError::EvaluateUnaryFail {
+                right_evaluation: right,
+                operator_type,
+            }),
+        }
+    }
+
+    fn evaluate_binary(
+        left: Evaluation,
+        right: Evaluation,
+        operator_type: TokenType,
+    ) -> Result<Evaluation, InterpretError> {
+        let evaluation = match operator_type {
+            TokenType::Plus => (left + right)?,
+            TokenType::Minus | TokenType::Slash | TokenType::Star => {
+                if let (Evaluation::f64(n1), Evaluation::f64(n2)) = (&left, &right) {
+                    match operator_type {
+                        TokenType::Minus => Evaluation::f64(n1 - n2),
+                        TokenType::Slash => Evaluation::f64(n1 / n2),
+                        TokenType::Star => Evaluation::f64(n1 * n2),
+                        _ => return Err(Self::binary_fail(left, operator_type, right)),
+                    }
+                } else {
+                    return Err(Self::binary_fail(left, operator_type, right));
+                }
+            }
+            TokenType::Greater
+            | TokenType::GreaterEqual
+            | TokenType::Less
+            | TokenType::LessEqual => {
+                if let (Evaluation::f64(n1), Evaluation::f64(n2)) = (&left, &right) {
+                    match operator_type {
+                        TokenType::Greater => Evaluation::bool(n1 > n2),
+                        TokenType::GreaterEqual => Evaluation::bool(n1 >= n2),
+                        TokenType::Less => Evaluation::bool(n1 < n2),
+                        TokenType::LessEqual => Evaluation::bool(n1 <= n2),
+                        _ => return Err(Self::binary_fail(left, operator_type, right)),
+                    }
+                } else {
+                    return Err(Self::binary_fail(left, operator_type, right));
+                }
+            }
+            TokenType::BangEqual => Evaluation::bool(left != right),
+            TokenType::EqualEqual => Evaluation::bool(left == right),
+            _ => return Err(Self::binary_fail(left, operator_type, right)),
+        };
+
+        Ok(evaluation)
+    }
+
+    fn binary_fail(
+        left: Evaluation,
+        operator_type: TokenType,
+        right: Evaluation,
+    ) -> InterpretError {
+        InterpretError::EvaluateBinaryFail {
+            left_evaluation: left,
+            operator_type,
+            right_evaluation: right,
+        }
     }
 }

@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use crate::{
     errors::ParseError,
     expr::{Expr, ExprAssign, ExprBinary, ExprCall, ExprGrouping, ExprLiteral, ExprUnary, ExprVar},
@@ -106,10 +104,11 @@ impl Parser {
                     return Err(ParseError::ParametersOverflow { token: self.peek() });
                 }
 
-                parameters
-                    .push(self.consume(TokenType::Comma, "Expect parameter name.".to_string())?);
+                parameters.push(
+                    self.consume(TokenType::Identifier, "Expect parameter name.".to_string())?,
+                );
 
-                if let false = self.match_token(&vec![TokenType::RightParen]) {
+                if let false = self.match_token(&vec![TokenType::Comma]) {
                     break;
                 }
             }
@@ -329,7 +328,7 @@ impl Parser {
                     return Err(ParseError::ArgumentsOverflow { token: self.peek() });
                 }
                 arguments.push(self.expression()?);
-                if self.match_token(&vec![TokenType::Comma]) {
+                if !self.match_token(&vec![TokenType::Comma]) {
                     break;
                 }
             }

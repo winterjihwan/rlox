@@ -1,9 +1,4 @@
-use crate::{
-    environment::Environment,
-    errors::InterpretError,
-    interpreter::{Evaluation, RloxCallable},
-    token::{Literal, Token, TokenType},
-};
+use crate::token::{Literal, Token};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -39,136 +34,6 @@ impl Expr {
         });
 
         format!("({}{})", name, exprs_string)
-    }
-
-    pub fn evaluate(
-        &mut self,
-        environment: &mut Environment,
-    ) -> Result<Evaluation, InterpretError> {
-        match self {
-            Self::Assign(expr) => {
-                let value = expr.value.evaluate(environment)?;
-                environment.assign(&expr.name, value.clone())?;
-                Ok(value)
-            }
-            Self::Literal(expr) => Ok(expr.literal.clone().into()),
-            Self::Call(expr) => {
-                let callee = expr.callee.evaluate(environment)?;
-
-                let mut arguments = Vec::new();
-                expr.arguments.iter_mut().try_for_each(|arg| {
-                    arguments.push(arg.evaluate(environment)?);
-                    Ok::<(), InterpretError>(())
-                })?;
-
-                let mut function: RloxCallable = Result::from(callee)?;
-                if arguments.len() != function.arity.into() {
-                    return Err(InterpretError::RuntimeError {
-                        err: format!(
-                            "Expected '{}' arguments but got '{}'",
-                            function.arity,
-                            arguments.len()
-                        ),
-                    });
-                }
-
-                Ok((function.fun)(environment, arguments))
-            }
-            Self::Grouping(expr_grouping) => expr_grouping.expr.evaluate(environment),
-            Self::Logical(expr) => {
-                let left = expr.left.evaluate(environment)?;
-
-                if let Evaluation::bool(b) = left {
-                    if (expr.operator.token_type == TokenType::Or && b)
-                        || (expr.operator.token_type == TokenType::And && !b)
-                    {
-                        return Ok(left);
-                    }
-                };
-
-                expr.right.evaluate(environment)
-            }
-            Self::Unary(expr_unary) => {
-                let right = expr_unary.right.evaluate(environment)?;
-                Self::evaluate_unary(right, expr_unary.operator.token_type)
-            }
-            Self::Binary(expr_binary) => {
-                let left = expr_binary.left.evaluate(environment)?;
-                let right = expr_binary.right.evaluate(environment)?;
-                Self::evaluate_binary(left, right, expr_binary.operator.token_type)
-            }
-            Self::Var(expr) => environment.get(&expr.name),
-        }
-    }
-
-    fn evaluate_unary(
-        right: Evaluation,
-        operator_type: TokenType,
-    ) -> Result<Evaluation, InterpretError> {
-        match (&right, operator_type) {
-            (Evaluation::f64(n), TokenType::Minus) => Ok(Evaluation::f64(-n)),
-            (Evaluation::bool(b), TokenType::Bang) => Ok(Evaluation::bool(!b)),
-            (Evaluation::nil(()), TokenType::Bang) => Ok(Evaluation::bool(false)),
-            _ => Err(InterpretError::EvaluateUnaryFail {
-                right_evaluation: right,
-                operator_type,
-            }),
-        }
-    }
-
-    fn evaluate_binary(
-        left: Evaluation,
-        right: Evaluation,
-        operator_type: TokenType,
-    ) -> Result<Evaluation, InterpretError> {
-        let evaluation = match operator_type {
-            TokenType::Plus => (left + right)?,
-            TokenType::Minus | TokenType::Slash | TokenType::Star => {
-                if let (Evaluation::f64(n1), Evaluation::f64(n2)) = (&left, &right) {
-                    match operator_type {
-                        TokenType::Minus => Evaluation::f64(n1 - n2),
-                        TokenType::Slash => Evaluation::f64(n1 / n2),
-                        TokenType::Star => Evaluation::f64(n1 * n2),
-                        _ => return Err(Self::binary_fail(left, operator_type, right)),
-                    }
-                } else {
-                    return Err(Self::binary_fail(left, operator_type, right));
-                }
-            }
-            TokenType::Greater
-            | TokenType::GreaterEqual
-            | TokenType::Less
-            | TokenType::LessEqual => {
-                if let (Evaluation::f64(n1), Evaluation::f64(n2)) = (&left, &right) {
-                    match operator_type {
-                        TokenType::Greater => Evaluation::bool(n1 > n2),
-                        TokenType::GreaterEqual => Evaluation::bool(n1 >= n2),
-                        TokenType::Less => Evaluation::bool(n1 < n2),
-                        TokenType::LessEqual => Evaluation::bool(n1 <= n2),
-                        _ => return Err(Self::binary_fail(left, operator_type, right)),
-                    }
-                } else {
-                    return Err(Self::binary_fail(left, operator_type, right));
-                }
-            }
-            TokenType::BangEqual => Evaluation::bool(left != right),
-            TokenType::EqualEqual => Evaluation::bool(left == right),
-            _ => return Err(Self::binary_fail(left, operator_type, right)),
-        };
-
-        Ok(evaluation)
-    }
-
-    fn binary_fail(
-        left: Evaluation,
-        operator_type: TokenType,
-        right: Evaluation,
-    ) -> InterpretError {
-        InterpretError::EvaluateBinaryFail {
-            left_evaluation: left,
-            operator_type,
-            right_evaluation: right,
-        }
     }
 }
 
@@ -216,7 +81,7 @@ impl ExprCall {
         Self {
             callee: Box::new(callee),
             paren,
-            arguments: Vec::new(),
+            arguments,
         }
     }
 }

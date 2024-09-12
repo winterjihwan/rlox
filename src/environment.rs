@@ -26,7 +26,7 @@ impl Environment {
         }
 
         if let Some(enc) = &self.enclosing {
-            return enc.get(name);
+            return Ok(enc.get(name)?);
         }
 
         Err(InterpretError::RuntimeError {
