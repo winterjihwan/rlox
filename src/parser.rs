@@ -1,7 +1,7 @@
 use crate::{
     errors::ParseError,
     expr::{Expr, ExprAssign, ExprBinary, ExprCall, ExprGrouping, ExprLiteral, ExprUnary, ExprVar},
-    stmt::{Stmt, StmtBlock, StmtFunction, StmtIf, StmtVar, StmtWhile},
+    stmt::{Stmt, StmtBlock, StmtFunction, StmtIf, StmtReturn, StmtVar, StmtWhile},
     token::{Literal, Token, TokenType},
 };
 
@@ -74,6 +74,9 @@ impl Parser {
         if self.match_token(&vec![TokenType::For]) {
             return self.for_statement();
         };
+        if self.match_token(&vec![TokenType::Return]) {
+            return self.return_statement();
+        };
         if self.match_token(&vec![TokenType::While]) {
             return self.while_statement();
         };
@@ -88,6 +91,22 @@ impl Parser {
         };
 
         self.expression_statement()
+    }
+
+    fn return_statement(&mut self) -> Result<Stmt, ParseError> {
+        let keyword = self.previous();
+        let mut value = None;
+
+        if !self.check(TokenType::Semicolon)? {
+            value = Some(self.expression()?);
+        }
+
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after return value.".to_string(),
+        )?;
+
+        Ok(Stmt::Return(StmtReturn::new(keyword, value)))
     }
 
     fn function_statement(&mut self, kind: String) -> Result<Stmt, ParseError> {

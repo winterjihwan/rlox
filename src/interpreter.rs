@@ -54,16 +54,16 @@ pub trait Callable {
         &mut self,
         interpreter: Interpreter,
         arguments: Vec<Evaluation>,
-    ) -> Result<Evaluation, InterpretError>;
+    ) -> Result<Option<Evaluation>, InterpretError>;
 }
 
 pub struct NativeFunction {
     pub arity: u8,
-    pub fun: Option<Box<dyn FnMut(Interpreter, Vec<Evaluation>) -> Evaluation>>,
+    pub fun: Option<Box<dyn FnMut(Interpreter, Vec<Evaluation>) -> Option<Evaluation>>>,
 }
 
 impl NativeFunction {
-    pub fn new(fun: Box<dyn FnMut(Interpreter, Vec<Evaluation>) -> Evaluation>) -> Self {
+    pub fn new(fun: Box<dyn FnMut(Interpreter, Vec<Evaluation>) -> Option<Evaluation>>) -> Self {
         Self {
             arity: 0,
             fun: Some(fun),
@@ -80,7 +80,7 @@ impl Callable for NativeFunction {
         &mut self,
         interpreter: Interpreter,
         arguments: Vec<Evaluation>,
-    ) -> Result<Evaluation, InterpretError> {
+    ) -> Result<Option<Evaluation>, InterpretError> {
         Ok((self.fun.as_mut().unwrap())(interpreter, arguments))
     }
 }
@@ -106,22 +106,33 @@ impl Callable for RloxFunction {
         &mut self,
         mut interpreter: Interpreter,
         arguments: Vec<Evaluation>,
-    ) -> Result<Evaluation, InterpretError> {
+    ) -> Result<Option<Evaluation>, InterpretError> {
         let mut environment = Environment::new();
         environment.enclosing = Some(Box::new(interpreter.globals.clone()));
 
+        println!("environment, {environment:#?}");
+
         let mut declaration = self.declaration.clone();
+        println!("declaration params len, {:#?}", declaration.params.len());
 
         for i in 0..declaration.params.len() {
+            println!(
+                "declarations params {}: {}, arguments {}: {:#?}",
+                i,
+                declaration.params[i].lexeme.to_string(),
+                i,
+                arguments[i]
+            );
             environment.define(
                 declaration.params[i].lexeme.to_string(),
                 Some(arguments[i].clone()),
             )
         }
 
-        interpreter.stmt_execute_block(&mut declaration.body, environment)?;
+        let a = interpreter.stmt_execute_block(&mut declaration.body, environment)?;
+        println!("aaa: {a:#?}");
 
-        Ok(Evaluation::nil(()))
+        Ok(a)
     }
 }
 
@@ -205,7 +216,7 @@ impl Interpreter {
 
             let display = || Evaluation::string(String::from("native <fn>"));
 
-            Evaluation::nil(())
+            Some(Evaluation::nil(()))
         };
 
         let clock_callable = NativeFunction::new(Box::new(clock_closure));
@@ -224,32 +235,39 @@ impl Interpreter {
     pub fn interpret(&mut self, statements: Vec<Stmt>) -> io::Result<()> {
         statements
             .into_iter()
-            .try_for_each(|mut stmt| self.stmt_execute(&mut stmt))?;
+            .try_for_each(|mut stmt| self.stmt_execute(&mut stmt).and_then(|_| Ok(())))?;
 
         Ok(())
     }
 
-    pub fn stmt_execute(&mut self, stmt: &mut Stmt) -> Result<(), InterpretError> {
+    pub fn stmt_execute(&mut self, stmt: &mut Stmt) -> Result<Option<Evaluation>, InterpretError> {
         self.stmt_evaluate(stmt)
     }
 
-    pub fn stmt_evaluate(&mut self, stmt: &mut Stmt) -> Result<(), InterpretError> {
+    pub fn stmt_evaluate(&mut self, stmt: &mut Stmt) -> Result<Option<Evaluation>, InterpretError> {
         match stmt {
+            Stmt::Return(stmt) => {
+                let mut value = None;
+                if let Some(val) = &stmt.value {
+                    value = Some(self.evaluate(val.clone())?);
+                }
+                Ok(value)
+            }
             Stmt::While(stmt) => {
                 while let Evaluation::bool(true) = self.evaluate(stmt.condition.clone())? {
                     self.stmt_execute(&mut stmt.body)?;
                 }
-                Ok(())
+                Ok(None)
             }
             Stmt::If(stmt) => {
                 if let Evaluation::bool(truthy) = self.evaluate(stmt.condition.clone())? {
                     if truthy {
-                        self.stmt_execute(&mut stmt.then_branch)?
+                        self.stmt_execute(&mut stmt.then_branch)?;
                     } else if let Some(_) = stmt.else_branch {
-                        self.stmt_execute(&mut stmt.else_branch.clone().unwrap())?
+                        self.stmt_execute(&mut stmt.else_branch.clone().unwrap())?;
                     }
                 };
-                Ok(())
+                Ok(None)
             }
             Stmt::Function(stmt) => {
                 let function = RloxFunction::new(stmt.params.len() as u8, stmt.clone());
@@ -259,20 +277,21 @@ impl Interpreter {
                     Some(Evaluation::callable(Arc::new(Mutex::new(function)))),
                 );
 
-                Ok(())
+                Ok(None)
             }
             Stmt::Block(stmt) => {
-                self.stmt_execute_block(&mut stmt.statements, Environment::new())?;
-                Ok(())
+                let a = self.stmt_execute_block(&mut stmt.statements, Environment::new())?;
+                Ok(a)
             }
             Stmt::Expression(expr) => {
                 let evl = self.evaluate(expr.clone())?;
-                Ok(())
+                println!("EVLEVLEVLEVLEVL, {evl:#?}");
+                Ok(None)
             }
             Stmt::Print(value) => {
                 let value = self.evaluate(value.clone())?;
                 println!("{value}");
-                Ok(())
+                Ok(None)
             }
             Stmt::Var(var) => {
                 let a = var
@@ -282,7 +301,7 @@ impl Interpreter {
                     .transpose()?;
 
                 self.environment.define(var.name.lexeme.to_string(), a);
-                Ok(())
+                Ok(None)
             }
         }
     }
@@ -291,17 +310,24 @@ impl Interpreter {
         &mut self,
         statements: &mut Vec<Stmt>,
         environment: Environment,
-    ) -> Result<(), InterpretError> {
+    ) -> Result<Option<Evaluation>, InterpretError> {
         let previous = mem::replace(&mut self.environment, environment);
         self.environment.enclosing = Some(Box::new(previous.clone()));
 
-        statements
+        let a = statements
             .iter_mut()
-            .try_for_each(|mut stmt| self.stmt_execute(&mut stmt))?;
+            .find_map(|stmt| match self.stmt_execute(stmt) {
+                Ok(Some(eval)) => Some(Ok(eval)),
+                Ok(None) => None,
+                Err(err) => Some(Err(err)),
+            })
+            .transpose()?;
+
+        println!("Executed block for function call, {a:#?}");
 
         self.environment = *self.environment.enclosing.take().unwrap();
 
-        Ok(())
+        Ok(a)
     }
 
     pub fn evaluate(&mut self, expr: Expr) -> Result<Evaluation, InterpretError> {
@@ -314,7 +340,9 @@ impl Interpreter {
             Expr::Literal(expr) => Ok(expr.literal.clone().into()),
             Expr::Call(expr) => {
                 let callee = self.evaluate(*expr.callee.clone())?;
+                println!("callee... {callee:#?}");
 
+                println!("My name is {expr:?} trying to acquire function lock");
                 let mut arguments = Vec::new();
                 expr.arguments.into_iter().try_for_each(|arg| {
                     arguments.push(self.evaluate(arg)?);
@@ -322,11 +350,14 @@ impl Interpreter {
                 })?;
 
                 let function: Arc<Mutex<dyn Callable>> = Result::from(callee)?;
-                let mut function_acq = function.lock().unwrap();
 
-                let arity = function_acq.arity().into();
+                let arity = {
+                    let function_acq = function.lock().unwrap();
+                    function_acq.arity().into()
+                };
 
                 if arguments.len() != arity {
+                    println!("haha");
                     return Err(InterpretError::RuntimeError {
                         err: format!(
                             "Expected '{}' arguments but got '{}'",
@@ -336,8 +367,19 @@ impl Interpreter {
                     });
                 }
 
-                function_acq.call(self.clone(), arguments)?;
-                Ok(Evaluation::nil(()))
+                println!("Calling...");
+                let a = {
+                    let mut function_acq = function.lock().unwrap();
+                    function_acq.call(self.clone(), arguments)?
+                };
+
+                let a = match a {
+                    Some(eval) => eval,
+                    None => Evaluation::nil(()),
+                };
+
+                println!("A: {a:#?}");
+                Ok(a)
             }
             Expr::Grouping(expr_grouping) => self.evaluate(*expr_grouping.expr),
             Expr::Logical(expr) => {

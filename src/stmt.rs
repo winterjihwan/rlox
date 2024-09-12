@@ -8,6 +8,7 @@ pub enum Stmt {
     Block(StmtBlock),
     Expression(StmtExpression),
     Print(StmtPrint),
+    Return(StmtReturn),
     Var(StmtVar),
     While(StmtWhile),
     If(StmtIf),
@@ -39,6 +40,18 @@ impl StmtWhile {
             condition,
             body: Box::new(body),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StmtReturn {
+    pub keyword: Token,
+    pub value: Option<Expr>,
+}
+
+impl StmtReturn {
+    pub fn new(keyword: Token, value: Option<Expr>) -> Self {
+        Self { keyword, value }
     }
 }
 
