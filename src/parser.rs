@@ -275,7 +275,6 @@ impl Parser {
             let value = self.assignment()?;
 
             if let Expr::Var(ExprVar { name }) = expr {
-                let name = name;
                 return Ok(Expr::Assign(ExprAssign::new(name, value)));
             }
 
